@@ -4,8 +4,8 @@ sys.path.append("/root")
 import rpyc
 
 SYMBOL      = "XAUUSD#"
-TIMEFRAME   = 15
-BARS        = 2880        # ~30 hari M15
+TIMEFRAME   = 15          # TF M15
+BARS        = 8000        # 8000 bars
 INITIAL_BAL = 100.0
 LOT_SIZE    = 0.01
 LEVERAGE    = 200
@@ -106,6 +106,7 @@ for i in range(WARMUP, len(cl) - 1):
                 break
         continue
 
+    # Logika EA dari backtester.py
     buy_sig  = cl[i] <= bl[i] and rsi[i] <= 30 and cl[i] > ema50[i]
     sell_sig = cl[i] >= bu[i] and rsi[i] >= 70 and cl[i] < ema50[i]
 
@@ -121,7 +122,7 @@ profit  = bal - INITIAL_BAL
 wr      = (wins / trades * 100) if trades > 0 else 0.0
 
 print(f"\n{'='*54}")
-print(f"  BACKTEST  {SYMBOL}  M15  ~30 Hari  Leverage 1:{LEVERAGE}")
+print(f"  BACKTEST  {SYMBOL}  M15  {BARS} Bars  Leverage 1:{LEVERAGE}")
 print(f"{'='*54}")
 print(f"  Modal Awal     : ${INITIAL_BAL:.2f}")
 print(f"  Final Balance  : ${bal:.2f}")

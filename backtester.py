@@ -1,7 +1,7 @@
 import pandas as pd
 import numpy as np
 from datetime import datetime
-from mt5both2s.modules.mt5_service import MT5Service
+from modules.mt5_service import MT5Service
 
 # Set config
 SYMBOL = "XAUUSD#"

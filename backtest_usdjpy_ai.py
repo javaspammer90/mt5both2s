@@ -6,8 +6,8 @@ import rpyc
 SYMBOL      = "XAUUSD#"
 TIMEFRAME   = 15
 BARS        = 2880        # ~30 hari M15
-INITIAL_BAL = 20.0
-LOT_SIZE    = 0.001
+INITIAL_BAL = 100.0
+LOT_SIZE    = 0.01
 LEVERAGE    = 200
 CONTRACT    = 100         # XAUUSD 100 oz/lot standar
 

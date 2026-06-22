@@ -65,12 +65,24 @@ def calc_adx(df: pd.DataFrame, period=14):
     return df
 
 def get_data(mt5, symbol, tf, count):
-    res = mt5.bulk_rates_json(symbol, tf, 0, count)
-    data = json.loads(res)
+    res_raw = mt5.copy_rates_from_pos(symbol, tf, 0, count)
+    if not res_raw: return pd.DataFrame()
+    
+    data = []
+    for r in res_raw:
+        row_dict = dict(r) if hasattr(r, 'keys') else r
+        if isinstance(row_dict, dict):
+            data.append({
+                'time_s': float(row_dict['time']),
+                'open': float(row_dict['open']),
+                'high': float(row_dict['high']),
+                'low': float(row_dict['low']),
+                'close': float(row_dict['close']),
+                'tick_volume': float(row_dict['tick_volume']) if 'tick_volume' in row_dict else 0.0
+            })
+    
     if not data: return pd.DataFrame()
-    df = pd.DataFrame(data)
-    df.rename(columns={'time':'time_s', 'open':'open', 'high':'high', 'low':'low', 'close':'close', 'tick_volume':'tick_volume'}, inplace=True)
-    return df
+    return pd.DataFrame(data)
 
 def run_bot():
     print("Mulai Super Scalper USDCAD#")
@@ -85,7 +97,8 @@ def run_bot():
             return
             
         if isinstance(info, str): info = json.loads(info)
-        if not info.get('visible', False):
+        visible = info['visible'] if 'visible' in info else False
+        if not visible:
             mt5.symbol_select(SYMBOL, True)
             
         print("Koneksi MT5 sukses.")
@@ -118,7 +131,7 @@ def run_bot():
             return {}
 
     start_acc = get_acc(mt5)
-    start_bal = start_acc.get('balance', 0)
+    start_bal = float(start_acc['balance']) if 'balance' in start_acc else 0.0
     current_day = datetime.now(timezone.utc).date()
 
     while True:
@@ -128,7 +141,7 @@ def run_bot():
                 current_day = now_day
                 trades_today = 0
                 start_acc = get_acc(mt5)
-                start_bal = start_acc.get('balance', 0)
+                start_bal = float(start_acc['balance']) if 'balance' in start_acc else 0.0
                 print(f"Hari baru. Reset trade count. Start balance: {start_bal}")
 
             acc = get_acc(mt5)
@@ -137,7 +150,7 @@ def run_bot():
                 time.sleep(SLEEP_TIME)
                 continue
             
-            eq = acc.get('equity', 0)
+            eq = float(acc['equity']) if 'equity' in acc else 0.0
             start_bal_val = start_bal if isinstance(start_bal, (float, int)) else start_bal['balance']
             dd_pct = (start_bal_val - eq) / start_bal_val if start_bal_val > 0 else 0
             
@@ -152,8 +165,9 @@ def run_bot():
                 continue
 
             # Cek posisi terbuka
-            pos_raw = mt5.positions_get(SYMBOL)
-            positions = json.loads(pos_raw) if isinstance(pos_raw, str) else list(pos_raw) if pos_raw else []
+            pos_raw = mt5.positions_get()
+            all_positions = json.loads(pos_raw) if isinstance(pos_raw, str) else list(pos_raw) if pos_raw else []
+            positions = [p for p in all_positions if (p['symbol'] if 'symbol' in p else getattr(p, 'symbol', '')) == SYMBOL]
             if len(positions) > 0:
                 print(f"Sedang ada posisi {SYMBOL}. Tunggu close.")
                 time.sleep(SLEEP_TIME)
@@ -213,8 +227,8 @@ def run_bot():
                         try: tick[k] = tick_raw[k]
                         except: pass
                 
-                ask = tick.get('ask', 0)
-                bid = tick.get('bid', 0)
+                ask = float(tick['ask']) if 'ask' in tick else 0.0
+                bid = float(tick['bid']) if 'bid' in tick else 0.0
                 
                 sym_raw = mt5.symbol_info(SYMBOL)
                 if isinstance(sym_raw, str):
@@ -224,23 +238,23 @@ def run_bot():
                     for k in ['point','trade_tick_value','trade_tick_size','volume_min','volume_max']:
                         try: sym_info[k] = sym_raw[k]
                         except: pass
-                point = sym_info.get('point', 0.00001)
+                point = float(sym_info['point']) if 'point' in sym_info else 0.00001
                 
                 sl_dist = atr_val
                 tp_dist = atr_val * 2.0
                 
                 # Risk calc
                 risk_amt = eq * RISK_PCT
-                tick_value = sym_info.get('trade_tick_value', 1.0)
-                tick_size = sym_info.get('trade_tick_size', point)
+                tick_value = float(sym_info['trade_tick_value']) if 'trade_tick_value' in sym_info else 1.0
+                tick_size = float(sym_info['trade_tick_size']) if 'trade_tick_size' in sym_info else point
                 if tick_size == 0 or tick_value == 0: continue
                 
                 sl_points = sl_dist / point
                 lot_calc = risk_amt / (sl_points * (tick_value / (tick_size / point)))
                 
                 lot = round(lot_calc, 2)
-                min_lot = sym_info.get('volume_min', 0.01)
-                max_lot = sym_info.get('volume_max', 100.0)
+                min_lot = float(sym_info['volume_min']) if 'volume_min' in sym_info else 0.01
+                max_lot = float(sym_info['volume_max']) if 'volume_max' in sym_info else 100.0
                 lot = max(min_lot, min(lot, max_lot))
 
                 request = {
@@ -261,10 +275,12 @@ def run_bot():
                 print(f"Kirim order {request['type']} Lot: {lot} SL: {request['sl']} TP: {request['tp']}")
                 req_raw = mt5.order_send(json.dumps(request)) if isinstance(mt5.order_send, type(lambda: None)) else mt5.order_send(request)
                 result = json.loads(req_raw) if isinstance(req_raw, str) else dict(req_raw) if req_raw else {'retcode': -1}
-                if result.get('retcode') != 10009: # TRADE_RETCODE_DONE
-                    print(f"Gagal OP. Code: {result.get('retcode')}")
+                retcode = result['retcode'] if 'retcode' in result else -1
+                if retcode != 10009: # TRADE_RETCODE_DONE
+                    print(f"Gagal OP. Code: {retcode}")
                 else:
-                    print(f"Sukses OP. Ticket: {result.get('order')}")
+                    order_id = result['order'] if 'order' in result else -1
+                    print(f"Sukses OP. Ticket: {order_id}")
                     trades_today += 1
 
         except Exception as e:

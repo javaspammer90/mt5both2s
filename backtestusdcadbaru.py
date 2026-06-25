@@ -19,7 +19,6 @@ bars_m5 = (DAYS * 24 * 60) // 5 + 300
 bars_h1 = (DAYS * 24) + 300
 bars_h4 = (DAYS * 6) + 300
 
-print(f"Mengambil data {SYMBOL} {DAYS} Hari...")
 rates_m5 = mt5.get_bulk_rates(SYMBOL, 5, bars_m5)
 rates_h1 = mt5.get_bulk_rates(SYMBOL, 16385, bars_h1)
 rates_h4 = mt5.get_bulk_rates(SYMBOL, 16388, bars_h4)
@@ -28,22 +27,31 @@ if not rates_m5 or not rates_h1 or not rates_h4:
     print("Gagal ambil data!")
     exit()
 
-# Mock time for simulation since bulk_rates only returns OHLC on your RPyC setup
-now = datetime.utcnow()
-def build_df(rates, timeframe_minutes):
-    df = pd.DataFrame(rates, columns=['open', 'high', 'low', 'close'])
-    times = [now - timedelta(minutes=timeframe_minutes * (len(df) - 1 - i)) for i in range(len(df))]
-    df['time'] = times
-    return df
+def clean_rates(raw_rates):
+    res = []
+    for r in raw_rates:
+        res.append({
+            'time': float(r[0]),
+            'open': float(r[1]),
+            'high': float(r[2]),
+            'low': float(r[3]),
+            'close': float(r[4])
+        })
+    return res
 
-df_m5 = build_df(rates_m5, 5)
-df_h1 = build_df(rates_h1, 60)
-df_h4 = build_df(rates_h4, 240)
+df_m5 = pd.DataFrame(clean_rates(rates_m5))
+df_m5['time'] = pd.to_datetime(df_m5['time'], unit='s')
+df_h1 = pd.DataFrame(clean_rates(rates_h1))
+df_h1['time'] = pd.to_datetime(df_h1['time'], unit='s')
+df_h4 = pd.DataFrame(clean_rates(rates_h4))
+df_h4['time'] = pd.to_datetime(df_h4['time'], unit='s')
 
 print("Menghitung Indikator...")
 # H4
 df_h4['ema50_h4'] = df_h4['close'].ewm(span=50, adjust=False).mean()
 df_h4['ema200_h4'] = df_h4['close'].ewm(span=200, adjust=False).mean()
+true_range_h4 = pd.concat([df_h4['high'] - df_h4['low'], np.abs(df_h4['high'] - df_h4['close'].shift()), np.abs(df_h4['low'] - df_h4['close'].shift())], axis=1).max(axis=1)
+df_h4['atr_h4'] = true_range_h4.rolling(14).mean()
 
 # H1
 df_h1['ema50_h1'] = df_h1['close'].ewm(span=50, adjust=False).mean()
@@ -84,10 +92,10 @@ true_range = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
 df_m5['atr'] = true_range.rolling(14).mean()
 
 # Merge H4 to H1 to M5
-df_h4_sub = df_h4[['time', 'ema50_h4', 'ema200_h4']].dropna()
+df_h4_sub = df_h4[['time', 'ema50_h4', 'ema200_h4', 'atr_h4']].dropna()
 df_h1 = pd.merge_asof(df_h1, df_h4_sub, on='time', direction='backward')
 
-df_h1_sub = df_h1[['time', 'ema50_h1', 'ema200_h1', 'ema50_h4', 'ema200_h4']].dropna()
+df_h1_sub = df_h1[['time', 'ema50_h1', 'ema200_h1', 'ema50_h4', 'ema200_h4', 'atr_h4']].dropna()
 df_m5 = pd.merge_asof(df_m5, df_h1_sub, on='time', direction='backward')
 df_m5 = df_m5.dropna().reset_index(drop=True)
 
@@ -229,7 +237,7 @@ for i in range(1, len(df_m5)):
                     sell_signal = False
 
         if buy_signal or sell_signal:
-            entry_atr = curr['atr']
+            entry_atr = curr['atr_h4']
             if entry_atr == 0 or np.isnan(entry_atr): continue
             
             if buy_signal:

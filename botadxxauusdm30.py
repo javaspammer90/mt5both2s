@@ -27,6 +27,7 @@ MAX_POS      = 1
 SLEEP_TIME   = 60      # Loop delay (detik)
 MAGIC_NUM    = 999123
 
+MAX_SPREAD   = 350
 OP_BUY = 0
 OP_SELL = 1
 
@@ -273,9 +274,16 @@ def run_bot():
                     sym_info = json.loads(sym_raw)
                 else:
                     sym_info = {}
-                    for k in ['point','trade_tick_value','trade_tick_size','volume_min','volume_max']:
+                    for k in ['point','trade_tick_value','trade_tick_size','volume_min','volume_max','spread']:
                         try: sym_info[k] = sym_raw[k]
                         except: pass
+                
+                curr_spread = float(sym_info.get('spread', 0.0))
+                if curr_spread > MAX_SPREAD:
+                    print(f"[WARN] Spread terlalu besar ({curr_spread} > {MAX_SPREAD}). Order dibatalkan!")
+                    time.sleep(SLEEP_TIME)
+                    continue
+
                 point = float(sym_info['point']) if 'point' in sym_info else 0.001
                 
                 # SL 2.5 ATR | TP 4.0 ATR

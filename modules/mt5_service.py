@@ -10,64 +10,41 @@ class MT5Service:
 
     def connect(self) -> bool:
         try:
-            self.conn = rpyc.connect(self.host, self.port)
+            self.conn = rpyc.classic.connect(self.host, self.port)
+            self.conn.execute("""
+import MetaTrader5 as mt5
+import json
+
+mt5.initialize()
+
+def get_rates_json(symbol, timeframe, count):
+    res = mt5.copy_rates_from_pos(symbol, timeframe, 0, count)
+    if res is None: return '[]'
+    return json.dumps([list(x) for x in res])
+""")
             return True
         except Exception as e:
             print(f"Error connecting to MT5 via RPyC: {e}")
             return False
 
     def get_account_info(self) -> Optional[Dict[str, Any]]:
-        if not self.conn: return None
-        raw = self.conn.root.account_info()
-        if raw is None: return None
-        # RPyC netref dict — copy field by field
-        keys = ["login","trade_mode","leverage","limit_orders","margin_so_mode",
-                "trade_allowed","trade_expert","margin_mode","currency_digits",
-                "fifo_close","balance","credit","profit","equity","margin",
-                "margin_free","margin_level","margin_so_call","margin_so_so",
-                "margin_initial","margin_maintenance","assets","liabilities",
-                "commission_blocked","name","server","currency","company"]
-        result = {}
-        for k in keys:
-            try: result[k] = raw[k]
-            except: pass
-        return result
-
-    def get_terminal_info(self) -> Optional[Dict[str, Any]]:
-        if not self.conn: return None
-        return self.conn.root.terminal_info()
-
-    def get_positions(self) -> List[Dict[str, Any]]:
-        if not self.conn: return []
-        raw = self.conn.root.positions_get()
-        return [dict(p) for p in raw] if raw else []
-
-    def get_orders(self) -> List[Dict[str, Any]]:
-        if not self.conn: return []
-        return self.conn.root.orders_get()
-
-    def get_tick(self, symbol: str) -> Optional[Dict[str, Any]]:
-        if not self.conn: return None
-        raw = self.conn.root.symbol_tick(symbol)
-        return dict(raw) if raw else None
-
-    def get_rates(self, symbol: str, timeframe: int, count: int) -> Optional[List[Dict[str, Any]]]:
-        if not self.conn: return None
-        return self.conn.root.copy_rates_from_pos(symbol, timeframe, 0, count)
+        pass
 
     def get_bulk_rates(self, symbol: str, timeframe: int, count: int) -> Optional[List[List[float]]]:
-        """Fetch OHLC cepat via JSON bulk — tanpa netref overhead."""
         if not self.conn: return None
-        j = self.conn.root.bulk_rates_json(symbol, timeframe, count)
-        return json.loads(j)
+        try:
+            # Panggil fungsi yang sudah di-injeksi di server RPyC
+            j = self.conn.namespace['get_rates_json'](symbol, timeframe, count)
+            return json.loads(j)
+        except Exception as e:
+            print("Error bulk rates:", e)
+            return []
 
     def get_symbol_info(self, symbol: str) -> Optional[Dict[str, Any]]:
         if not self.conn: return None
-        j = self.conn.root.symbol_info(symbol)
-        return json.loads(j)
-
-    def order_send(self, request: Dict) -> Dict:
-        """Kirim order ke MT5. Return dict result."""
-        if not self.conn: return {"retcode": -1, "comment": "Not connected", "order": 0}
-        j = self.conn.root.order_send(json.dumps(request))
-        return json.loads(j)
+        try:
+            mt5 = self.conn.modules.MetaTrader5
+            info = mt5.symbol_info(symbol)
+            return info._asdict() if info else None
+        except Exception as e:
+            return None

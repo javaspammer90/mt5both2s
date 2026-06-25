@@ -13,7 +13,6 @@ import sys, time, json, math
 import numpy as np
 import pandas as pd
 from datetime import datetime, timezone, timedelta, time as dtime
-sys.path.append("/root")
 import rpyc
 
 # === CONFIG ===
@@ -66,7 +65,7 @@ def run_bot():
     print(" Mulai Super Scalper USDCAD# (Agresif M5 + H4/H1) ")
     print("=====================================================")
     try:
-        conn = rpyc.connect("localhost", 18812)
+        conn = rpyc.connect('localhost', 18812)
         mt5 = conn.root
         
         info = mt5.symbol_info(SYMBOL)
